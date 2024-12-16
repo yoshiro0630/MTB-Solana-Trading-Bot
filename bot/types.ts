@@ -3,14 +3,15 @@ import { Context } from 'telegraf';
 export interface BotContext extends Context {
     session?: {
         messageStatus?: string;
-        tokenToBuy?: TokenData;
+        tokenToBuy?: any;
         user?: any;
         walletBalances?: any[];
         solBalance?: any;
-        tokenIndex?: any;
+        tokenIndex?: number;
+        walletIndex? :number;
         selectedMode?: 'swap' | 'limit';
         tempLimitOrders?: {
-            amount: number;
+            amount?: number;
             marketCap?: number;
         };
     };

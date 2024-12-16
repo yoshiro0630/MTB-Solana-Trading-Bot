@@ -4,7 +4,9 @@ import axios from "axios";
 import { connection, fetchTokenAccountData } from "./web3";
 import { API_URLS } from "@raydium-io/raydium-sdk-v2";
 import bs58 from "bs58";
-// import { bot } from "../bot";
+import { Telegraf } from "telegraf";
+
+const bot = new Telegraf("7912313639:AAHWVJxqGdfpGnV2vLMQ87eS-fhs7-fbplk");
 
 interface SwapCompute {
     id: string;
@@ -33,15 +35,15 @@ interface SwapCompute {
 }
 
 export const apiSwap = async (
-    mintAddress: string,
+    mintAddress: string | undefined,
     amount: number,
     secretKey: string,
     chatId: string,
     isBuy: boolean,
-    bot: any
 ) => {
-    let inputMint: string | null = null;
-    let outputMint: string | null = null;
+    console.log("Swaping.....");
+    let inputMint: string | undefined;
+    let outputMint: string | undefined;
     try {
         if (isBuy) {
             inputMint = NATIVE_MINT.toBase58();
@@ -110,18 +112,18 @@ export const apiSwap = async (
         );
 
         console.log(`total ${allTransactions.length} transactions`, swapTransactions);
-        bot.sendMessage(chatId, `total ${allTransactions.length} transactions`);
+        bot.telegram.sendMessage(chatId, `total ${allTransactions.length} transactions`);
 
         let idx = 0;
         if (!isV0Tx) {
             for (const tx of allTransactions) {
                 console.log(`${++idx} transaction sending...`);
-                bot.sendMessage(chatId, `${++idx} transaction sending...`);
+                bot.telegram.sendMessage(chatId, `${++idx} transaction sending...`);
                 const transaction = tx as Transaction;
                 transaction.sign(owner);
                 const txId = await sendAndConfirmTransaction(connection, transaction, [owner], { skipPreflight: true });
                 console.log(`${++idx} transaction confirmed, txId: ${txId}`);
-                bot.sendMessage(chatId, `${++idx} transaction confirmed, txId: ${txId}`);
+                bot.telegram.sendMessage(chatId, `${++idx} transaction confirmed, txId: ${txId}`);
             }
         } else {
             for (const tx of allTransactions) {
@@ -133,7 +135,7 @@ export const apiSwap = async (
                     commitment: "finalized",
                 });
                 console.log(`${idx} transaction sending..., txId: ${txId}`);
-                bot.sendMessage(chatId, `${idx} transaction sending..., txId: ${txId}`);
+                bot.telegram.sendMessage(chatId, `${idx} transaction sending..., txId: ${txId}`);
                 await connection.confirmTransaction(
                     {
                         blockhash,
@@ -143,12 +145,13 @@ export const apiSwap = async (
                     "confirmed"
                 );
                 console.log(`${idx} transaction confirmed`);
-                bot.sendMessage(chatId, `${idx} transaction confirmed`);
+                bot.telegram.sendMessage(chatId, `${idx} transaction confirmed`);
             }
         }
     } catch (error) {
-        bot.sendMessage(chatId, "Transaction failed");
+        console.error(error);
+        bot.telegram.sendMessage(chatId, "Transaction failed");
     }
 };
 
-// apiSwap("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", 100000, "5ib36nMCaPSdZaHPMrJ7zq8oWhWa6trrNwHY6oNUePtUwdsYCU2MsJ4LpCw9oaZm3h3ruQzsYtFHCtxDQoUhBPBF", "7916248551");
+// apiSwap("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", 100000, "5ib36nMCaPSdZaHPMrJ7zq8oWhWa6trrNwHY6oNUePtUwdsYCU2MsJ4LpCw9oaZm3h3ruQzsYtFHCtxDQoUhBPBF", "7916248551", true);
