@@ -5,22 +5,20 @@ import userRoutes from "./routes/userRoutes";
 import orderRoutes from "./routes/orderRoutes";
 import Order from "./models/Order";
 import { getTokenData } from "../bot/web3";
-import { Swap } from "../bot";
-// import { Telegraf } from "telegraf";
+import { apiSwap } from "../bot/swap";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// const bot = new Telegraf("7912313639:AAHWVJxqGdfpGnV2vLMQ87eS-fhs7-fbplk");
 
 // Middleware
 app.use(express.json());
 
 // MongoDB Connection
 mongoose
-    .connect(`${process.env.MONGODB_URI}MTBBot`)
+    .connect(`mongodb+srv://yoshiroito0630:chBbUzT8PuxznEIq@cluster-travelai.mjnhe9t.mongodb.net/MTBBot`)
     .then(() => console.log("MongoDB connected"))
     .catch((err) => console.error("MongoDB connection error:", err));
 
@@ -38,9 +36,9 @@ const monitorOrders = async () => {
             tokenData.market_cap_usd >= order.marketCapToHit * 0.98
         ) {
             if (order.mode == "buy") {
-                // await apiSwap(order.tokenAddress, order.limitAmount, order.privKey, order.userId, true);
+                await apiSwap(order.tokenAddress, order.limitAmount, order.privKey, order.userId, true);
             } else {
-                // await apiSwap(order.tokenAddress, order.limitAmount, order.privKey, order.userId, false);
+                await apiSwap(order.tokenAddress, order.limitAmount, order.privKey, order.userId, false);
             }
         }
     });

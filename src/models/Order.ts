@@ -2,6 +2,8 @@ import mongoose, { Document, Schema } from "mongoose";
 
 export interface IOrder extends Document {
     userId: string;
+    orderId: string;
+    pubKey: string;
     privKey: string;
     tokenAddress: string;
     limitAmount: number;
@@ -11,6 +13,8 @@ export interface IOrder extends Document {
 
 const OrderSchema: Schema = new Schema({
     userId: { type: String, required: true },
+    orderId: { type: String, required: true },
+    pubKey: { type: String, required: true },
     privKey: { type: String, required: true },
     tokenAddress: { type: String, required: true },
     limitAmount: { type: Number, required: true },
