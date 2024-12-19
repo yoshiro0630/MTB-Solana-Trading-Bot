@@ -3,9 +3,11 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import userRoutes from "./routes/userRoutes";
 import orderRoutes from "./routes/orderRoutes";
+import channelRoutes from "./routes/channelRoutes";
 import Order from "./models/Order";
 import { getTokenData } from "../bot/web3";
 import { apiSwap } from "../bot/swap";
+import { startTelegramClient } from "../channel/index";
 
 dotenv.config();
 
@@ -25,6 +27,18 @@ mongoose
 // Routes
 app.use("/api", userRoutes);
 app.use("/api", orderRoutes);
+app.use("/api", channelRoutes);
+
+// app.post('api/startClient', async (req, res) => {
+//     const { channels } = req.body;
+//     try {
+//         await startTelegramClient(channels);
+//         res.send("Telegram client started.");
+//     } catch (error) {
+//         console.error("Error starting Telegram client:", error);
+//         res.status(500).send("Failed to start Telegram client.");
+//     }
+// });
 
 const monitorOrders = async () => {
     const orders = await Order.find();
@@ -35,7 +49,7 @@ const monitorOrders = async () => {
             tokenData.market_cap_usd <= order.marketCapToHit * 1.02 &&
             tokenData.market_cap_usd >= order.marketCapToHit * 0.98
         ) {
-            if (order.mode == "buy") {
+            if (order.mode === "buy") {
                 await apiSwap(order.tokenAddress, order.limitAmount, order.privKey, order.userId, true);
             } else {
                 await apiSwap(order.tokenAddress, order.limitAmount, order.privKey, order.userId, false);

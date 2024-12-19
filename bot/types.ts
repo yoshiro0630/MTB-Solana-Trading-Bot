@@ -1,6 +1,7 @@
 import { Context } from 'telegraf';
 
 export interface BotContext extends Context {
+    match?: RegExpMatchArray;
     session?: {
         messageStatus?: string;
         tokenToBuy?: any;
@@ -14,6 +15,8 @@ export interface BotContext extends Context {
             amount?: number;
             marketCap?: number;
         };
+        channel?: any;
+        channelSettingMessageId?: number;
     };
 }
 

@@ -1,10 +1,5 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-interface IWallet {
-    pubkey: string; // Example property for currency
-    privkey: string; // Example property for amount
-}
-
 export interface IUser extends Document {
     userId: string;
     username: string;
