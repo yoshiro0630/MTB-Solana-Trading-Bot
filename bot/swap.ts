@@ -5,8 +5,10 @@ import { connection, fetchTokenAccountData } from "./web3";
 import { API_URLS } from "@raydium-io/raydium-sdk-v2";
 import bs58 from "bs58";
 import { Telegraf } from "telegraf";
+import Channel from "../src/models/Channel";
+import { iterMessages } from "telegram/client/messages";
 
-const bot = new Telegraf("7912313639:AAHWVJxqGdfpGnV2vLMQ87eS-fhs7-fbplk");
+export const bot = new Telegraf("7912313639:AAHWVJxqGdfpGnV2vLMQ87eS-fhs7-fbplk");
 
 interface SwapCompute {
     id: string;
@@ -40,6 +42,8 @@ export const apiSwap = async (
     secretKey: string,
     chatId: string,
     isBuy: boolean,
+    slippage?: number,
+    channel?: any
 ) => {
     console.log("Swaping.....");
     let inputMint: string | undefined;
@@ -83,10 +87,8 @@ export const apiSwap = async (
         }>(`${API_URLS.BASE_HOST}${API_URLS.PRIORITY_FEE}`);
 
         const { data: swapResponse } = await axios.get<SwapCompute>(
-            `${
-                API_URLS.SWAP_HOST
-            }/compute/swap-base-in?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${
-                slippage * 100
+            `${API_URLS.SWAP_HOST
+            }/compute/swap-base-in?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippage * 100
             }&txVersion=${txVersion}`
         );
 
@@ -146,10 +148,15 @@ export const apiSwap = async (
                 );
                 console.log(`${idx} transaction confirmed`);
                 bot.telegram.sendMessage(chatId, `${idx} transaction confirmed`);
+                if (channel) {
+                    await Channel.updateOne(
+                        { _id: channel._id },
+                        { $set: { currentInvestment: channel.currentInvestment + amount }}
+                    );
+                }
             }
         }
     } catch (error) {
-        console.error(error);
         bot.telegram.sendMessage(chatId, "Transaction failed");
     }
 };

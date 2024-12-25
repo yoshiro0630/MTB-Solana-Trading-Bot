@@ -17,6 +17,10 @@ export interface BotContext extends Context {
         };
         channel?: any;
         channelSettingMessageId?: number;
+        tempChannelTP?: {
+            tp?: number;
+            amount?: number;
+        }
     };
 }
 

@@ -58,6 +58,30 @@ bot.start(async (ctx: BotContext) => {
 
 // // CallBack Logics
 
+bot.action("home_cmd", async (ctx: BotContext) => {
+    if (!ctx.session) ctx.session = {};
+    if (!ctx.session.walletIndex) ctx.session.walletIndex = 0;
+    ctx.session.walletBalances = await getTokenAccounts(
+        ctx.session.user.wallets[ctx.session.walletIndex].publicKey,
+        connection
+    );
+    ctx.session.solBalance = await getSolBalance(
+        ctx.session.user.wallets[ctx.session.walletIndex].publicKey
+    );
+    let text: string = `SOL Balance: ${ctx.session.solBalance} SOL\n\n`;
+    if (ctx.session.walletBalances?.length === 0) {
+        text += "No other tokens found";
+    } else {
+        ctx.session.walletBalances?.forEach((item) => {
+            text += `Token Name: ${item.tokenName}\nToken Address: ${item.tokenAddress}\nToken Balance: ${item.tokenBalance}\n\n`;
+        });
+    }
+    const inline_keyboard = getStartCaption();
+    ctx.reply(`${ctx.session.user.wallets[ctx.session.walletIndex].publicKey}\n\n${text}`, {
+        reply_markup: inline_keyboard,
+    });
+});
+
 bot.action("buy_cmd", async (ctx: BotContext) => {
     if (!ctx.session) ctx.session = {};
     console.log("CTX Session===========>", ctx.session);
@@ -347,11 +371,22 @@ bot.action("call_channels", async (ctx: BotContext) => {
     if (!ctx.session) ctx.session = {};
     if (!ctx.session.walletIndex) ctx.session.walletIndex = 0;
     const channels = await fetchChannels(ctx.session.user.userId, ctx.session.user.wallets[ctx.session.walletIndex].publicKey);
-    if (channels) {
+    if (channels && channels.length > 0) {
         const inline_keyboard = getChannlesCaption(channels);
         ctx.reply("Select call channels you'd like to subscribe", {
             reply_markup: { inline_keyboard: inline_keyboard },
         });
+    } else {
+        ctx.reply("Select call channels you'd like to subscribe", {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        Markup.button.callback("🏠 Home", "home_cmd"),
+                        Markup.button.callback("➕ Add Channel", "add_channel"),
+                    ]
+                ]
+            }
+        })
     }
 });
 
@@ -370,23 +405,129 @@ bot.action(/channel_setting_(.+)/, async (ctx: BotContext) => {
         const channel = channels.find((item: { url: string; }) => item.url === channelUrl);
         ctx.session.channel = channel;
         console.log("channel==========>", channel);
-        const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV);
+        const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV, channel.autoBuy, channel.autoSell);
         const text = getChannelText(channel);
         ctx.reply(text, { reply_markup: { inline_keyboard: inline_keyboard } }).then((sentMessage) => {
             if (!ctx.session) ctx.session = {};
             ctx.session.channelSettingMessageId = sentMessage.message_id;
         });
-        // ctx.session.channelSettingMessageId = (ctx.message?.message_id ?? 0) + 1;
-        // console.log("messageId============>", ctx.session.channelSettingMessageId);
     } else {
         ctx.reply('No channel URL found in the callback data.');
     }
 });
 
-bot.action("channel_total_investment", async (ctx: BotContext) => {
+bot.action("channel_is_auto_buy_off", async (ctx: BotContext) => {
+    const _id = ctx.session?.channel._id;
+    const newData = {
+        autoBuy: false
+    };
+    const channel = await updateChannel(_id, newData);
+    const text = getChannelText(channel);
+    const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV, channel.autoBuy, channel.autoSell);
+    await ctx.editMessageText(text);
+    await ctx.editMessageReplyMarkup({ inline_keyboard: inline_keyboard });
+});
+
+bot.action("channel_is_auto_buy_on", async (ctx: BotContext) => {
+    const _id = ctx.session?.channel._id;
+    const newData = {
+        autoBuy: true
+    };
+    const channel = await updateChannel(_id, newData);
+    const text = getChannelText(channel);
+    const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV, channel.autoBuy, channel.autoSell);
+    await ctx.editMessageText(text);
+    await ctx.editMessageReplyMarkup({ inline_keyboard: inline_keyboard });
+});
+
+bot.action("channel_auto_sell_settings", async (ctx: BotContext) => {
     if (!ctx.session) ctx.session = {};
-    ctx.session.messageStatus = "channel_total_investment";
-    ctx.reply("Input total investment SOL amount (For example: 0.5)");
+    const text =
+        `Auto Sell Settings` +
+        `\nSet a T/P strategy by setting as many limit TP targets as you would like. The Amount column for T/P should add up to only 100%. Structure accordingly.` +
+        `\nExample:` +
+        `\n100%; 50% (i.e. takes out your initials)` +
+        `\n250%; 20%` +
+        `\n400%; 20%` +
+        `\n1000%; 10%`;
+    const inline_keyboard = getAutoSellSettingsCaption(ctx.session?.channel.autoSell, ctx.session?.channel.autoSellSettings);
+    ctx.reply(text, {
+        reply_markup: { inline_keyboard: inline_keyboard }
+    }).then((sentMessage) => {
+        if (!ctx.session) ctx.session = {};
+        ctx.session.channelSettingMessageId = sentMessage.message_id;
+    });
+});
+
+bot.action("channel_is_auto_sell_off", async (ctx: BotContext) => {
+    const _id = ctx.session?.channel._id;
+    const newData = {
+        autoSell: false
+    };
+    const channel = await updateChannel(_id, newData);
+    const inline_keyboard = getAutoSellSettingsCaption(false, channel.autoSellSettings);
+    await ctx.editMessageReplyMarkup({ inline_keyboard: inline_keyboard });
+});
+
+bot.action("channel_is_auto_sell_on", async (ctx: BotContext) => {
+    const _id = ctx.session?.channel._id;
+    const newData = {
+        autoSell: true
+    };
+    const channel = await updateChannel(_id, newData);
+    const inline_keyboard = getAutoSellSettingsCaption(true, channel.autoSellSettings);
+    await ctx.editMessageReplyMarkup({ inline_keyboard: inline_keyboard });
+});
+
+bot.action("channel_add_tp_button", async (ctx: BotContext | any) => {
+    // Check if the callback query message has reply_markup
+    const initialInlineKeyboard = ctx.callbackQuery.message.reply_markup.inline_keyboard;
+
+    const newButtons = [
+        Markup.button.callback("T/P: -", "channel_add_tp"),
+        Markup.button.callback("Amount: -", "channel_add_tp_amount")
+    ];
+
+    // Create a copy of the initial keyboard to modify
+    const updatedInlineKeyboard = getAutoSellSettingsCaption(ctx.session?.channel.autoSell, ctx.session?.channel.autoSellSettings);
+
+    // Insert new buttons at the second-to-last position
+    updatedInlineKeyboard.splice(updatedInlineKeyboard.length - 2, 0, newButtons);
+
+    // Function to compare two arrays for equality
+    const arraysEqual = (arr1: any[], arr2: any[]) => {
+        if (arr1.length !== arr2.length) return false;
+        return true;
+    };
+
+    // Check if the updated keyboard is different from the initial keyboard
+    if (!arraysEqual(initialInlineKeyboard, updatedInlineKeyboard)) {
+        await ctx.editMessageReplyMarkup({ inline_keyboard: updatedInlineKeyboard });
+    } else {
+        console.log("No changes to the inline keyboard; skipping update.");
+    }
+});
+
+bot.action("channel_add_tp", async (ctx: BotContext) => {
+    if (!ctx.session) ctx.session = {};
+    ctx.session.messageStatus = "channel_add_tp";
+    ctx.reply("Input T/P in percentage(i.e. If you want 100% T/P, enter 100.)");
+});
+
+bot.action("channel_add_tp_amount", async (ctx: BotContext) => {
+    if (!ctx.session) ctx.session = {};
+    ctx.session.messageStatus = "channel_add_tp_amount";
+    ctx.reply("Input Amount in percentage(i.e. If you want 20% Amount, enter 20.)");
+});
+
+bot.action(/channel_tp_(.+)/, async (ctx: BotContext | any) => {
+    const tpOption = ctx.match[0].split("_")[2];
+    ctx.session.messageStatus = ctx.match[0];
+    if (tpOption === "amount") {
+        ctx.reply("Input T/P in percentage(i.e. If you want 100% T/P, enter 100.)");
+    } else {
+        ctx.reply("Input Amount in percentage(i.e. If you want 20% Amount, enter 20.)");
+    }
 });
 
 bot.action("channel_max_investment", async (ctx: BotContext) => {
@@ -426,7 +567,7 @@ bot.action("channel_antimev_off", async (ctx: BotContext) => {
     };
     const channel = await updateChannel(_id, newData);
     const text = getChannelText(channel);
-    const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV);
+    const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV, channel.autoBuy, channel.autoSell);
     await ctx.editMessageText(text);
     await ctx.editMessageReplyMarkup({ inline_keyboard: inline_keyboard });
 });
@@ -438,7 +579,7 @@ bot.action("channel_antimev_on", async (ctx: BotContext) => {
     };
     const channel = await updateChannel(_id, newData);
     const text = getChannelText(channel);
-    const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV);
+    const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV, channel.autoBuy, channel.autoSell);
     await ctx.editMessageText(text);
     await ctx.editMessageReplyMarkup({ inline_keyboard: inline_keyboard });
 });
@@ -658,7 +799,7 @@ bot.use(async (ctx: BotContext, next) => {
                     const channels = await fetchChannels(ctx.session.user.userId, ctx.session.user.wallets[ctx.session.walletIndex].publicKey);
                     const channel = channels.find((item: { url: string; }) => item.url === channelName);
                     ctx.session.channel = channel;
-                    const inline_keyboard = getDefaultChannelSettings(channelTitle, channelName, channel.antiMEV);
+                    const inline_keyboard = getDefaultChannelSettings(channelTitle, channelName, channel.antiMEV, channel.autoBuy, channel.autoSell);
                     const text = getChannelText(channel);
                     ctx.reply(text, { reply_markup: { inline_keyboard: inline_keyboard } });
                 } else {
@@ -674,13 +815,94 @@ bot.use(async (ctx: BotContext, next) => {
             // }
             return next();
         }
+        if (ctx.session?.messageStatus === "channel_add_tp") {
+            const tp = parseFloat(userInput);
+            if (!ctx.session.tempChannelTP) ctx.session.tempChannelTP = {};
+            ctx.session.tempChannelTP.tp = tp;
+            await ctx.deleteMessage();
+            await ctx.telegram.deleteMessage(ctx.session.user.userId, messageId - 1);
+            if (ctx.session.tempChannelTP.tp && ctx.session.tempChannelTP.amount) {
+                ctx.session.channel.autoSellSettings.push(ctx.session.tempChannelTP);
+                console.log("ctxChannelAutoSellSettings============>", ctx.session.channel.autoSellSettings);
+                const newData = {
+                    autoSellSettings: ctx.session.channel.autoSellSettings
+                }
+                const channel: any = await updateChannel(ctx.session.channel._id, newData);
+                const inline_keyboard = getAutoSellSettingsCaption(channel.autoSell, channel.autoSellSettings);
+                await ctx.telegram.editMessageReplyMarkup(ctx.session.user.userId, ctx.session.channelSettingMessageId, undefined, { inline_keyboard: inline_keyboard });
+            } else {
+                const newButtons = [
+                    Markup.button.callback(`T/P: ${tp}%`, "channel_add_tp"),
+                    Markup.button.callback("Amount: -", "channel_add_tp_amount")
+                ]
+                const updatedInlineKeyboard = getAutoSellSettingsCaption(ctx.session?.channel.autoSell, ctx.session?.channel.autoSellSettings);
+
+                // Insert new buttons at the second-to-last position
+                updatedInlineKeyboard.splice(updatedInlineKeyboard.length - 2, 0, newButtons);
+                await ctx.telegram.editMessageReplyMarkup(ctx.session.user.userId, ctx.session.channelSettingMessageId, undefined, { inline_keyboard: updatedInlineKeyboard });
+            }
+            return next();
+        }
+        if (ctx.session?.messageStatus === "channel_add_tp_amount") {
+            const amount = parseFloat(userInput);
+            if (!ctx.session.tempChannelTP) ctx.session.tempChannelTP = {};
+            ctx.session.tempChannelTP.amount = amount;
+            await ctx.deleteMessage();
+            await ctx.telegram.deleteMessage(ctx.session.user.userId, messageId - 1);
+            if (ctx.session.tempChannelTP.tp && ctx.session.tempChannelTP.amount) {
+                ctx.session.channel.autoSellSettings.push(ctx.session.tempChannelTP);
+                console.log("ctxChannelAutoSellSettings============>", ctx.session.channel.autoSellSettings);
+                const newData = {
+                    autoSellSettings: ctx.session.channel.autoSellSettings
+                }
+                const channel: any = await updateChannel(ctx.session.channel._id, newData);
+                console.log("Channel=========>", channel);
+                const inline_keyboard = getAutoSellSettingsCaption(channel.autoSell, channel.autoSellSettings);
+                await ctx.telegram.editMessageReplyMarkup(ctx.session.user.userId, ctx.session.channelSettingMessageId, undefined, { inline_keyboard: inline_keyboard });
+            } else {
+                const newButtons = [
+                    Markup.button.callback(`T/P: -`, "channel_add_tp"),
+                    Markup.button.callback(`Amount: ${amount}%`, "channel_add_tp_amount")
+                ]
+                const updatedInlineKeyboard = getAutoSellSettingsCaption(ctx.session?.channel.autoSell, ctx.session?.channel.autoSellSettings);
+
+                // Insert new buttons at the second-to-last position
+                updatedInlineKeyboard.splice(updatedInlineKeyboard.length - 2, 0, newButtons);
+                await ctx.telegram.editMessageReplyMarkup(ctx.session.user.userId, ctx.session.channelSettingMessageId, undefined, { inline_keyboard: updatedInlineKeyboard });
+            }
+            return next();
+        }
+        if (ctx.session?.messageStatus?.startsWith("channel_tp_")) {
+            const tpOption = ctx.session.messageStatus.split("_")[2];
+            const input = parseFloat(userInput);
+            if (tpOption === "amount") {
+                const tpAmountIndex = ctx.session.messageStatus.split("_")[3];
+                if (input === 0) {
+                    ctx.session.channel.autoSellSettings.splice(tpAmountIndex, 1);
+                } else {
+                    ctx.session.channel.autoSellSettings[tpAmountIndex].amount = input;
+                }
+            } else {
+                const tpIndex = ctx.session.messageStatus.split("_")[2];
+                if (input === 0) {
+                    ctx.session.channel.autoSellSettings.splice(tpIndex, 1);
+                } else {
+                    ctx.session.channel.autoSellSettings[tpIndex].tp = input;
+                }
+            }
+            const newData = {
+                autoSellSettings: ctx.session.channel.autoSellSettings
+            }
+            const channel = await updateChannel(ctx.session.channel._id, newData);
+            await ctx.deleteMessage();
+            await ctx.telegram.deleteMessage(ctx.session.user.userId, messageId - 1);
+            const inline_keyboard = getAutoSellSettingsCaption(channel.autoSell, channel.autoSellSettings);
+            await ctx.telegram.editMessageReplyMarkup(ctx.session.user.userId, ctx.session.channelSettingMessageId, undefined, { inline_keyboard: inline_keyboard });
+            return next();
+        }
         if (ctx.session?.messageStatus?.startsWith("channel_")) {
             let newData: any;
             switch (ctx.session.messageStatus) {
-                case "channel_total_investment":
-                    const totalInvestment = parseFloat(userInput);
-                    newData = { totalInvestment: totalInvestment };
-                    break;
                 case "channel_max_investment":
                     const maxTotalInvestment = parseFloat(userInput);
                     newData = { maxTotalInvestment: maxTotalInvestment };
@@ -719,7 +941,7 @@ bot.use(async (ctx: BotContext, next) => {
                     break;
             }
             const channel = await updateChannel(ctx.session.channel._id, newData);
-            const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV);
+            const inline_keyboard = getDefaultChannelSettings(channel.name, channel.url, channel.antiMEV, channel.autoBuy, channel.autoSell);
             const text = getChannelText(channel)
             await ctx.deleteMessage();
             await ctx.telegram.deleteMessage(ctx.session.user.userId, messageId - 1);
@@ -818,7 +1040,7 @@ const fetchChannels = async (userId: number, publicKey: string) => {
             return null;
         }
     } catch (error) {
-        console.error(error);
+        // console.error(error);
         return null;
     }
 };
@@ -828,9 +1050,20 @@ const saveDefaultChannel = async (userId: number, name: string | null, url: stri
         userId: userId,
         name: name,
         url: url,
-        totalInvestment: "No Limit",
+        autoBuy: false,
+        autoSell: false,
+        autoSellSettings: [
+            { tp: 400, amount: 20 },
+            { tp: 500, amount: 20 },
+            { tp: 800, amount: 20 },
+            { tp: 1000, amount: 10 },
+            { tp: 1500, amount: 10 },
+            { tp: 2500, amount: 5 },
+            { tp: 4900, amount: 5 },
+        ],
         buyAmount: 0.1,
         maxTotalInvestment: "No Limit",
+        currentInvestment: 0,
         autoBuyRetry: 1,
         retryTime: 30,
         slippage: 10,
@@ -850,7 +1083,7 @@ const saveDefaultChannel = async (userId: number, name: string | null, url: stri
     }
 }
 
-async function getChannelTitle(channelUsername: string): Promise<string | null> {
+const getChannelTitle = async (channelUsername: string): Promise<string | null> => {
     try {
         // Get chat information using the channel username
         const chat = await bot.telegram.getChat(channelUsername);
@@ -893,25 +1126,25 @@ const getStartCaption = () => {
     return {
         inline_keyboard: [
             [
-                Markup.button.callback("Buy", "buy_cmd"),
-                Markup.button.callback("Sell & Manage", "sell_cmd"),
+                Markup.button.callback("💰 Buy", "buy_cmd"),
+                Markup.button.callback("📈 Sell & Manage", "sell_cmd"),
             ],
             [
-                Markup.button.callback("Choose wallet", "wallets_cmd"),
-                Markup.button.callback("Export Private Key", "privkey_cmd"),
+                Markup.button.callback("💼 Choose wallet", "wallets_cmd"),
+                Markup.button.callback("🔑 Export Private Key", "privkey_cmd"),
             ],
             [
-                Markup.button.callback("Copy Trade", "copy_trade_cmd"),
-                Markup.button.callback("Call Channels", "call_channels"),
+                Markup.button.callback("📊 Copy Trade", "copy_trade_cmd"),
+                Markup.button.callback("📞 Call Channels", "call_channels"),
             ],
-            [Markup.button.callback("Limit Orders", "limit_orders")],
+            [Markup.button.callback("📉 Limit Orders", "limit_orders")],
             [
-                Markup.button.callback("Help", "help_cmd"),
-                Markup.button.callback("Settings", "settings_cmd"),
+                Markup.button.callback("❓ Help", "help_cmd"),
+                Markup.button.callback("⚙️ Settings", "settings_cmd"),
             ],
             [
-                Markup.button.callback("Pin", "pin_cmd"),
-                Markup.button.callback("Refresh", "refresh_cmd"),
+                Markup.button.callback("📌 Pin", "pin_cmd"),
+                Markup.button.callback("🔄 Refresh", "refresh_cmd"),
             ],
         ],
     };
@@ -951,7 +1184,7 @@ const getSwapLimitCaption = (mode?: "swap" | "limit") => {
 const getBuyLimitSellCaption = (mode?: "swap" | "limit") => {
     return [
         [
-            Markup.button.callback("Home", "home_cmd"),
+            Markup.button.callback("🏠 Home", "home_cmd"),
             Markup.button.callback("Close", "cl_cmd"),
         ],
         [
@@ -1004,21 +1237,27 @@ const getBuyLimitSellCaption = (mode?: "swap" | "limit") => {
 const getChannlesCaption = (channels: any[]) => {
     let inline_keyboard = [
         [
-            Markup.button.callback("Home", "home_cmd"),
-            Markup.button.callback("Add Channel", "add_channel"),
+            Markup.button.callback("🏠 Home", "home_cmd"),
+            Markup.button.callback("➕ Add Channel", "add_channel"),
         ],
     ];
     channels.forEach((channel) => {
-        inline_keyboard.push([Markup.button.callback(`${channel.name}`, `channel_setting_${channel.url}`)]);
+        inline_keyboard.push([Markup.button.callback(`📢 ${channel.name}`, `channel_setting_${channel.url}`)]);
     });
     return inline_keyboard
 };
 
-const getDefaultChannelSettings = (name: string, url: string, antiMEV: boolean) => {
+const getDefaultChannelSettings = (name: string, url: string, antiMEV: boolean, autoBuy: boolean, autoSell: boolean) => {
     return [
         [Markup.button.callback(name, "name")],
         [Markup.button.callback(url, "url")],
-        [Markup.button.callback("Total Investment", "channel_total_investment")],
+        [
+            autoBuy === true ?
+                Markup.button.callback("🟢 AutoBuy", "channel_is_auto_buy_off")
+                : Markup.button.callback("🔴 AutoBuy", "channel_is_auto_buy_on"),
+            autoSell === true ?
+                Markup.button.callback("🟢 AutoSell", "channel_auto_sell_settings")
+                : Markup.button.callback("🔴 AutoSell", "channel_auto_sell_settings")],
         [Markup.button.callback("Max Total Investment", "channel_max_investment")],
         [Markup.button.callback("Auto Buy Retry", "channel_auto_buy"), Markup.button.callback("Retry Time", "channel_retry_time")],
         [Markup.button.callback("Buy Amount", "channel_buy_amount"), Markup.button.callback("Slippage", "channel_slippage")],
@@ -1032,7 +1271,27 @@ const getDefaultChannelSettings = (name: string, url: string, antiMEV: boolean) 
     ]
 };
 
-function generateOrderId() {
+const getAutoSellSettingsCaption = (isAutoSell: boolean, tp: any[]) => {
+    let inline_keyboard = [
+        [isAutoSell === true ?
+            Markup.button.callback("✅ Active", "channel_is_auto_sell_off")
+            : Markup.button.callback("🟠 Paused", "channel_is_auto_sell_on")
+        ]
+    ];
+    tp.forEach((item) => {
+        inline_keyboard.push([
+            Markup.button.callback(`T/P: ${item.tp}%`, `channel_tp_${tp.indexOf(item)}`),
+            Markup.button.callback(`Amount: ${item.amount}%`, `channel_tp_amount_${tp.indexOf(item)}`)
+        ]);
+    });
+    inline_keyboard.push(
+        [Markup.button.callback("Add", "channel_add_tp_button")],
+        [Markup.button.callback("Cancel", "cl_cmd")]
+    );
+    return inline_keyboard;
+};
+
+const generateOrderId = () => {
     const now = new Date();
 
     // Get the components of the date
@@ -1051,11 +1310,12 @@ const getChannelText = (channel: any) => {
     const text =
         `Name: ${channel.name}` +
         `\nusername: ${channel.url}` +
-        `\n\n📌 Auto Buy` +
-        `\nAuto Buy: Disabled` +
+        `\n\n📌 Auto Buy & Sell` +
+        `\nAuto Buy: ${channel.autoBuy === false ? "❌ Disabled" : "⭕️ Enabled"}` +
+        `\nAuto Sell: ${channel.autoSell === false ? "❌ Disabled" : "⭕️ Enabled"}` +
         `\nAmount: ${channel.buyAmount}` +
-        `\nTotal Investment: ${channel.totalInvestment}` +
         `\nMax Total Investment: ${channel.maxTotalInvestment}` +
+        `\nCurrent Investment: ${channel.currentInvestment}` +
         `\nAuto Buy Retry: ${channel.autoBuyRetry}` +
         `\nRetry Time: ${channel.retryTime}` +
         `\nSlippage: ${channel.slippage}` +

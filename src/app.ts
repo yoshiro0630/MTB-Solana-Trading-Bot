@@ -7,6 +7,7 @@ import channelRoutes from "./routes/channelRoutes";
 import Order from "./models/Order";
 import { getTokenData } from "../bot/web3";
 import { apiSwap } from "../bot/swap";
+import Channel from "./models/Channel";
 import { startTelegramClient } from "../channel/index";
 
 dotenv.config();
@@ -40,6 +41,12 @@ app.use("/api", channelRoutes);
 //     }
 // });
 
+const startScrape = async () => {
+    const channels = await Channel.find();
+    const channelUrls = channels.map(item => item.url);
+    await startTelegramClient(channelUrls);
+}
+
 const monitorOrders = async () => {
     const orders = await Order.find();
     orders.forEach(async (order) => {
@@ -59,6 +66,7 @@ const monitorOrders = async () => {
 };
 
 setInterval(monitorOrders, 5000);
+startScrape();
 
 // Start Express server
 app.listen(PORT, () => {
